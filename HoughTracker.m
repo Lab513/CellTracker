@@ -3,38 +3,57 @@
 classdef HoughTracker < handle
   
   properties
-    cells_radii    = [6, 20]; % pixels
-    old_circen     = [];
+    cells_radii    = [6, 20];    % the minimal and maximal radius of a cell [px]
+    grdthres       = 50;
+    fltr4LM_R      = 14;
+    old_circen     = [];         % cells positions at the last time-point
     old_circen2    = [];
 
-    mapping        = [];
-    %id_counter     = 0;
-    data_int       = [];
-    data_coloc     = [];
-    data_size      = [];
-    
-    movie_tracking = [];
-    movie_nuc      = [];
-    tp             =  0;
-    base_name      = 0;
+    mapping        = [];         % permutation matrix mapping current to original cell order
+    data_int       = [];         % fluorescent intensity data
+    data_coloc     = [];         % colocalization (e.g. nuclear localization) data
+    data_size      = [];         % cell size data (radius in pixels)
+    tp             =  0;         % current time step
+    output_dir      = '';
     lost_cells     = [];
     lost_cells_mapped = [];
   end
 
   methods
 
-    function obj = HoughTracker( base_name )
-      obj.base_name = base_name;
-      %obj.movie_tracking = avifile( [ base_name, '_tracking.avi'] );
-      %obj.movie_nuc      = avifile( [ base_name, '_nucleus.avi'] );
-    end
-
-    function delete( obj )
-      %obj.movie_tracking = close( obj.movie_tracking );
-      %obj.movie_nuc      = close( obj.movie_nuc );
+    function obj = HoughTracker( output_dir, varargin )
+      % constructor
+      % arguments are output_dir (the directory where tracking images are written to) (for manual control)
+      % cells_radii (optional) minimal and maximal radius of a cell (in px) default: [6, 20]  This value depends on camera resolution!
+      % grdthres (optional) threshold parameter for Hough transform (default 50). For details see Circular_HoughGrd.m
+      % fltr4LM_R (optional) radius of filter used to search for local maxima (default 14)  For details see Circular_HoughGrd.m
+      p = inputParser;
+      p.addOptional('cells_radii', [6, 20], @(x) length(x)==2)
+      p.addOptional('grdthres', 50 )
+      p.addOptional('fltr4LM_R', 14 ) 
+      p.parse(varargin{:});
+      
+      obj.output_dir = output_dir;
+      obj.cells_radii = p.Results.cells_radii;
+      obj.grdthres    = p.Results.grdthres;
+      obj.fltr4LM_R   = p.Results.fltr4LM_R;
     end
     
-    function x = add_timepoint( obj, img_trans, img_expr, img_hog, img_nuclear )
+    function x = add_timepoint( obj, img_trans, img_expr, img_tf, img_nuclear_marker )
+      % add a new image
+      % required is a trans-image (img_trans)
+      % other images are optional (must be set to 0 if not available)
+      % img_expr: fluorescence image of a cytosolic labeled protein
+      % img_tf: fluorescent image of a transcription factor (to calculate the colocalization with a nuclear marker)
+      % img_nuclear_marker: fluorescent image of a nuclear marker
+     
+      % input parsing
+      img_trans           = uint16( img_trans );
+      img_expr            = uint16( img_trans );
+      img_tf              = uint16( img_tf );
+      img_nuclear_marker  = uint16( img_nuclear_marker );
+    
+      % run the Hough tranform on the trans image
       [accum, circen, cirrad] = obj.hough_transform( img_trans );
       obj.tp = obj.tp+1;
       if ~isempty(obj.old_circen)
@@ -42,7 +61,6 @@ classdef HoughTracker < handle
 	% append cells that have been lost in the round before
 	old = [ obj.old_circen; obj.old_circen2(obj.lost_cells,:) ]; 
 	m=obj.tracking( old, circen, cirrad );
-	%m = zeros( length(old), length(cirrad) );
 
 	% separate result in normal and refound cells
 	m_new = m(1:end-length(obj.lost_cells),:);
@@ -51,14 +69,6 @@ classdef HoughTracker < handle
 	% determine which cells have been lost (lost for original order, lost mapped for mapped order)
 	lost = find( all(m_new==0,2) );
 	[lost_mapped,dummy] = find(obj.mapping(:,lost));
-	% old code, the one above does the same
-	%v = zeros( size(obj.mapping,2), 1 );
-	%v(lost)=1:length(lost);
-	%l_ind = obj.mapping*v;
-	%lost_mapped=zeros(length(lost),1);
-	%for i=1:length(lost)
-	%  lost_mapped(i) = find(l_ind==i);
-	%end
 
 	obj.mapping = obj.mapping * m_new; % update permutation matrix
 
@@ -113,28 +123,31 @@ classdef HoughTracker < handle
 	expr_new = [obj.tp; expr_new];
 	obj.data_int  = [obj.data_int expr_new];
       end
-      if (img_hog~=0) & (img_nuclear~=0)
-	coloc = obj.colocalization( img_trans, img_hog, img_nuclear, mask, cirrad );
+      if (img_tf~=0) & (img_nuclear_marker~=0)
+	coloc = obj.colocalization( img_trans, img_tf, img_nuclear_marker, mask, cirrad );
 	coloc(isnan(coloc))=0;
 	coloc_new = obj.mapping * coloc';
 	coloc_new(coloc_new==0)=NaN;
 	coloc_new = [obj.tp; coloc_new];
 	obj.data_coloc = [obj.data_coloc coloc_new];
       end
-      %x = expr_new;
     end
 
     function x = get_intensities( obj, img_trans, img_gfp, img_rfp, mask, cirrad )
+      % calculate expression intensity of a cytosolic protein
+      % mask is the information where which cell has been detected
+      % img_gfp is the image of the fluorescent expression reporter
       x=zeros(1,max(mask(:)));
       for i=1:max(mask(:))
 	this_mask = (mask==i);
 	crop = img_gfp( this_mask );
 	x(i) = sum(crop(:)) / numel(crop);
-	%x(i) = sum(crop(:)) / cirrad(i)^2;
       end
     end
 
     function x = colocalization( obj, img_trans, img_gfp, img_rfp, mask, cirrad )
+      % compute the colocalization of a nuclear marker and another fluorescent protein
+      
       x=zeros(1,max(mask(:)));
       t         = graythresh( img_rfp );
       t_img_rfp = im2bw( img_rfp, t*1.5 );
@@ -143,9 +156,9 @@ classdef HoughTracker < handle
       cyt_gfp   = img_gfp - nuc_gfp;
 
       % debug .. write nuclear images to disk
-      h = figure('visible', 'off');
-      imshow( cyt_gfp, [min(cyt_gfp(:)), max(cyt_gfp(:))] );
-      saveas( h, [ obj.base_name sprintf( '_tracker/img_nuclear_%04d.tif', obj.tp) ], 'tif' );
+      %h = figure('visible', 'off');
+      %imshow( cyt_gfp, [min(cyt_gfp(:)), max(cyt_gfp(:))] );
+      %saveas( h, fullfile(obj.output_dir, sprintf( 'img_nuclear_%04d.tif', obj.tp)), 'tif' );
 
       for i=1:max(mask(:))
 	this_mask = (mask==i);
@@ -160,9 +173,9 @@ classdef HoughTracker < handle
     end
 
     function [accum, circen, cirrad] = hough_transform( obj, img_trans )
-      %[accum, circen, cirrad] = CircularHough_Grd(double(img_trans), obj.cells_radii, 20, 15, 1)
-      %[accum, circen, cirrad] = CircularHough_Grd(double(img_trans), obj.cells_radii, 20, 15, 1);
-      [accum, circen, cirrad] = CircularHough_Grd(double(img_trans), obj.cells_radii, 50, 14, 1);
+    
+      [accum, circen, cirrad] = CircularHough_Grd(double(img_trans), obj.cells_radii, obj.grdthres, obj.fltr4LM_R, 1);
+        
       if any(cirrad <= 0)
         inds = find(cirrad>0);
         cirrad = cirrad(inds);
@@ -205,7 +218,7 @@ classdef HoughTracker < handle
     end
 
     function mapping = linear_constraint_mapping( obj, D )
-      % solve tracking from distance matrix D using binary integer programming
+      % solve tracking from distance matrix D using binary integer programming (matlab internal optimization)
       
       % define the problem as c'*b != max while Ax<b and A_eq*x=b_eq
       c = reshape(D',1,[]);
@@ -234,9 +247,16 @@ classdef HoughTracker < handle
       x_0 = reshape( eye(dim_1,dim_2)', 1, [])';
 
       % do the actual mapping
-      options = optimset( 'TolXInteger', 0 );
+      
+      % the bintprog function has been removed, changed code to use the intlinprog function
+      %options = optimset( 'TolXInteger', 0 );
+      %options = optimoptions( 'TolInteger', 0 );
       %opt = bintprog( c, A, b, A_eq, b_eq, x_0 ); %, options);
-      opt = bintprog( c, A, b ); %, A_eq, b_eq, x_0 ); %, options); 
+      %opt = bintprog( c, A, b ); %, A_eq, b_eq, x_0 ); %, options); 
+      intcon = 1:length(c); %ones(length(c),1);
+      lb = zeros(length(c),1);
+      ub = ones(length(c),1);      
+      opt = intlinprog( c, intcon, A, b, [], [], lb, ub );
       m=reshape(opt',dim_2,dim_1)';
       [a,b]=find(m);
       mapping=zeros(1,max(b));
@@ -245,6 +265,7 @@ classdef HoughTracker < handle
     end
 
     function mapping = linear_constraint_mapping_lp_solve( obj, D )
+        % solve tracking from distance matrix D using binary integer programming (lp_solve optimization)
         c = reshape(D',1,[]);
         [dim_1, dim_2] = size(D);
         dd = dim_1*dim_2;
@@ -252,7 +273,6 @@ classdef HoughTracker < handle
         lp=mxlpsolve('make_lp', 0, length(c));
         mxlpsolve('set_verbose', lp, 3);
         mxlpsolve('set_obj_fn', lp, c);
-        %mxlpsolve('add_constraint', lp, [0, 78.26, 0, 2.9], 2, 92.3);
         
         for i=1:dim_1
             a = zeros(1,dd);
@@ -265,9 +285,7 @@ classdef HoughTracker < handle
             a = repmat(x, 1, dim_1 );
             mxlpsolve('add_constraint', lp, a, 1, 1 );
         end
-        %mxlpsolve('add_constraint', lp, ones(1,dd), 3, min(dim_1,dim_2) );
         for i=1:length(c)
-            %mxlpsovle('set_binary', lp, i, 'TRUE');
             mxlpsolve('set_binary', lp, i, 1 );
         end
         
@@ -282,24 +300,16 @@ classdef HoughTracker < handle
 
 
     function pic = plot_cells( obj, img_trans, circen, cirrad, ids )
+      % write a picture of the tracking to disk for manual verification
       h = figure('visible', 'off');
       imshow( img_trans, [min(img_trans(:)), max(img_trans(:))] );
       hold on;
-      %plot(circen(:,1),circen(:,2),'r+', 'linewidth', 2)
       for i=1:size(circen,1)
         rectangle('Position',[circen(i,1) - cirrad(i), circen(i,2) - cirrad(i), 2*cirrad(i), 2*cirrad(i)], 'Curvature', [1,1], 'edgecolor', 'b', 'linewidth', 1.5);
 	text( circen(i,1)-5, circen(i,2)-5, num2str(ids(i)), 'Color', 'red' );
-	%text( circen(i,1)-5, circen(i,2)+25, num2str(floor(circen(i,1))), 'Color', 'red', 'fontsize', 8 );
-	%text( circen(i,1)-5, circen(i,2)+35, num2str(floor(circen(i,2))), 'Color', 'red', 'fontsize', 8 );
       end
       hold off;
-
-      saveas( h, [ obj.base_name sprintf( '_tracker/img_tracking_%04d.tif', obj.tp) ], 'tif' );
+      saveas( h, fullfile(obj.output_dir, sprintf('img_tracking_%04d.tif', obj.tp)), 'tif');
     end
-    
-
-
-
-
   end
 end
