@@ -9,7 +9,9 @@ Hough Transform to segment and track yeast cells
 
 The tracker can either use the internal matlab integer linear programming (ILP) solver, or it can use the open source lp_solve ILP solver.
 
-# Installation of the lp_solve matlab bindings
+### Installation of the lp_solve matlab bindings
+
+* for more detailed information see [here](http://lpsolve.sourceforge.net/5.5/MATLAB.htm)
 
 1. install the [lp_solve libary](http://sourceforge.net/projects/lpsolve/)
 
