@@ -30,7 +30,8 @@ classdef HoughTracker < handle
       % ilp_solver (optional) choose the ilp solver used for tracking can
       % be eiter matlab or lpsolve for the lp_solve library
       p = inputParser;
-      p.addOptional('cells_radii', [6, 20], @(x) length(x)==2);
+      %p.addOptional('cells_radii', [6, 20], @(x) length(x)==2);
+      p.addOptional('cells_radii', [12, 40], @(x) length(x)==2);
       p.addOptional('grdthres', 50 );
       p.addOptional('fltr4LM_R', 14 );
       p.addOptional('ilp_solver', '');
@@ -55,6 +56,40 @@ classdef HoughTracker < handle
       obj.fltr4LM_R   = p.Results.fltr4LM_R;
     end
     
+    
+    
+    function [a,b] = add_without_tracking( obj, img_trans, img_fluo1, img_fluo2 )
+        % segment image but do not track cells. 
+        % fluorescent intensities for two fluorescent channels are retuned.
+        % no data is stored in data object
+        img_trans = uint16( img_trans );
+      	img_fluo1 = uint16( img_fluo1 );
+        img_fluo2 = uint16( img_fluo2 );
+        
+        % run the Hough tranform on the trans image
+        [accum, circen, cirrad] = obj.hough_transform( img_trans );
+        obj.plot_cells( img_trans, circen, cirrad, 1:size(circen,1) );
+        
+        [size_x,size_y]=size(img_trans);
+        [X,Y] = meshgrid(1:size_y, 1:size_x);
+
+        %cirrad = cirrad;
+        mask = zeros(size_x,size_y);
+        for ii = 1 : size(circen, 1)
+            this_mask = (X-circen(ii,1)).^2 + (Y-circen(ii,2)).^2 < cirrad(ii)^2;	  
+            mask = mask + ii*this_mask;
+            mask = min( mask, ii ); % if cells are overlapping ...
+        end
+
+        fluo1 = obj.get_intensities( img_trans, img_fluo1, 0, mask, cirrad );
+        fluo2 = obj.get_intensities( img_trans, img_fluo2, 0, mask, cirrad );
+        a = fluo1;
+        b = fluo2;
+    end
+    
+    
+    
+    
     function x = add_timepoint( obj, img_trans, img_expr, img_tf, img_nuclear_marker )
       % add a new image
       % required is a trans-image (img_trans)
@@ -68,7 +103,7 @@ classdef HoughTracker < handle
       img_expr            = uint16( img_expr );
       img_tf              = uint16( img_tf );
       img_nuclear_marker  = uint16( img_nuclear_marker );
-    
+          
       % run the Hough tranform on the trans image
       [accum, circen, cirrad] = obj.hough_transform( img_trans );
       obj.tp = obj.tp+1;
