@@ -62,6 +62,7 @@ classdef HoughTracker < handle
         % segment image but do not track cells. 
         % fluorescent intensities for two fluorescent channels are retuned.
         % no data is stored in data object
+        
         img_trans = uint16( img_trans );
       	img_fluo1 = uint16( img_fluo1 );
         img_fluo2 = uint16( img_fluo2 );
@@ -107,36 +108,46 @@ classdef HoughTracker < handle
       % run the Hough tranform on the trans image
       [accum, circen, cirrad] = obj.hough_transform( img_trans );
       obj.tp = obj.tp+1;
-      if ~isempty(obj.old_circen)
-        % tracking
-        % append cells that have been lost in the round before
-        old = [ obj.old_circen; obj.old_circen2(obj.lost_cells,:) ]; 
-        m=obj.tracking( old, circen, cirrad );
+      if ~isempty(circen)
+        if ~isempty(obj.old_circen)
+          % tracking
+          % append cells that have been lost in the round before
+          old = [ obj.old_circen; obj.old_circen2(obj.lost_cells,:) ]; 
+          m=obj.tracking( old, circen, cirrad );
+  
+          % separate result in normal and refound cells
+          m_new = m(1:end-length(obj.lost_cells),:);
+          m_old = m(end-length(obj.lost_cells)+1:end,:);
+  
+          % determine which cells have been lost (lost for original order, lost mapped for mapped order)
+          lost = find( all(m_new==0,2) );
+          [lost_mapped,dummy] = find(obj.mapping(:,lost));
 
-        % separate result in normal and refound cells
-        m_new = m(1:end-length(obj.lost_cells),:);
-        m_old = m(end-length(obj.lost_cells)+1:end,:);
-
-        % determine which cells have been lost (lost for original order, lost mapped for mapped order)
-        lost = find( all(m_new==0,2) );
-        [lost_mapped,dummy] = find(obj.mapping(:,lost));
-
-        obj.mapping = obj.mapping * m_new; % update permutation matrix
-
-        % modify mapping to bring in lost cells again
-        if ~isempty(obj.lost_cells)
-            for o=find(any(m_old,2))'
-                obj.mapping( obj.lost_cells_mapped(o), : ) = m_old( o, : );
-            end
+          obj.mapping = obj.mapping * m_new; % update permutation matrix
+  
+          % modify mapping to bring in lost cells again
+          if ~isempty(obj.lost_cells)
+              for o=find(any(m_old,2))'
+                  obj.mapping( obj.lost_cells_mapped(o), : ) = m_old( o, : );
+              end
+          end
+          for new=find(any(obj.mapping,1)==0) % append row for new objects
+              obj.mapping = [obj.mapping; 1:size(obj.mapping,2)==new];
+          end
+          obj.lost_cells = lost;
+          obj.lost_cells_mapped = lost_mapped;
+          obj.old_circen2 = obj.old_circen;
+        else
+          obj.mapping = eye(size(circen,1)); % first permutation matrix is identity
         end
-        for new=find(any(obj.mapping,1)==0) % append row for new objects
-            obj.mapping = [obj.mapping; 1:size(obj.mapping,2)==new];
-        end
-        obj.lost_cells = lost;
-        obj.lost_cells_mapped = lost_mapped;
-        obj.old_circen2 = obj.old_circen;
       else
-        obj.mapping = eye(size(circen,1)); % first permutation matrix is identity
+        % in case no cell has been detected
+        empty_tp = [obj.tp; NaN*ones(size(obj.data_size,1)-1,1)];
+        obj.data_size = [obj.data_size empty_tp];
+        obj.data_int  = [obj.data_int empty_tp]; 
+        obj.data_coloc  = [obj.data_int empty_tp];
+        obj.plot_cells( img_trans, circen, cirrad, [] );
+        return
       end
       obj.old_circen = circen;
       ids = (obj.mapping')*(1:size(obj.mapping,1))';
@@ -355,6 +366,7 @@ classdef HoughTracker < handle
     function pic = plot_cells( obj, img_trans, circen, cirrad, ids )
       % write a picture of the tracking to disk for manual verification
       h = figure('visible', 'off');
+
       imshow( img_trans, [min(img_trans(:)), max(img_trans(:))] );
       hold on;
       for i=1:size(circen,1)
