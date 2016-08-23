@@ -70,6 +70,7 @@ classdef HoughTracker < handle
         % run the Hough tranform on the trans image
         [accum, circen, cirrad] = obj.hough_transform( img_trans );
         obj.plot_cells( img_trans, circen, cirrad, 1:size(circen,1) );
+        obj.tp = obj.tp + 1; % incremet time so that plotted image has unique filename
         
         [size_x,size_y]=size(img_trans);
         [X,Y] = meshgrid(1:size_y, 1:size_x);
@@ -101,9 +102,9 @@ classdef HoughTracker < handle
      
       % input parsing
       img_trans           = uint16( img_trans );
-      img_expr            = uint16( img_expr );
-      img_tf              = uint16( img_tf );
-      img_nuclear_marker  = uint16( img_nuclear_marker );
+      %img_expr            = uint16( img_expr );
+      %img_tf              = uint16( img_tf );
+      %img_nuclear_marker  = uint16( img_nuclear_marker );
           
       % run the Hough tranform on the trans image
       [accum, circen, cirrad] = obj.hough_transform( img_trans );
@@ -184,8 +185,10 @@ classdef HoughTracker < handle
         expr_new = [obj.tp; expr_new];
         obj.data_int  = [obj.data_int expr_new];
       end
-      if (img_tf~=0) & (img_nuclear_marker~=0)
-        coloc = obj.colocalization( img_trans, img_tf, img_nuclear_marker, mask, cirrad );
+      %if (img_tf~=0) & (img_nuclear_marker~=0)
+      if (img_tf~=0)
+        %coloc = obj.colocalization( img_trans, img_tf, img_nuclear_marker, mask, cirrad );
+        coloc = obj.get_intensities( img_trans, img_tf, 0, mask, cirrad );
         coloc(isnan(coloc))=0;
         coloc_new = obj.mapping * coloc';
         coloc_new(coloc_new==0)=NaN;
@@ -202,7 +205,8 @@ classdef HoughTracker < handle
       for i=1:max(mask(:))
         this_mask = (mask==i);
         crop = img_gfp( this_mask );
-        x(i) = sum(crop(:)) / numel(crop);
+        %x(i) = sum(crop(:)) / numel(crop);
+        x(i) = nanmean(crop);
       end
     end
 
