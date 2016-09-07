@@ -176,7 +176,7 @@ classdef HoughTracker < handle
       end
       obj.data_size = [obj.data_size cellsize];
 
-      if img_expr~=0
+      if numel(img_expr)>1
         expr = obj.get_intensities( img_trans, img_expr, 0, mask, cirrad );
         expr(isnan(expr))=0;
         expr_new = obj.mapping * expr';
@@ -186,7 +186,7 @@ classdef HoughTracker < handle
         obj.data_int  = [obj.data_int expr_new];
       end
       %if (img_tf~=0) & (img_nuclear_marker~=0)
-      if (img_tf~=0)
+      if numel(img_tf)>1
         %coloc = obj.colocalization( img_trans, img_tf, img_nuclear_marker, mask, cirrad );
         coloc = obj.get_intensities( img_trans, img_tf, 0, mask, cirrad );
         coloc(isnan(coloc))=0;
