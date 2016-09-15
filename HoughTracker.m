@@ -14,6 +14,8 @@ classdef HoughTracker < handle
     data_int       = [];         % fluorescent intensity data
     data_coloc     = [];         % colocalization (e.g. nuclear localization) data
     data_size      = [];         % cell size data (radius in pixels)
+    data_pos_x     = [];
+    data_pos_y     = [];
     tp             =  0;         % current time step
     output_dir      = '';
     lost_cells     = [];
@@ -169,12 +171,17 @@ classdef HoughTracker < handle
       cellsize = obj.mapping * cirrad;
       cellsize = [obj.tp; cellsize];
       if ~isempty(obj.data_size) & size(obj.data_size,1)<size(cellsize,1)
+        % add NaN rows to the bottom of all data matrices if new cells have been detected
         num_new = size(cellsize,1)-size(obj.data_size,1);
         obj.data_size = [obj.data_size; NaN*ones(num_new,size(obj.data_size,2))];
         obj.data_int  = [obj.data_int; NaN*ones(num_new,size(obj.data_int,2))];
         obj.data_coloc  = [obj.data_coloc; NaN*ones(num_new,size(obj.data_coloc,2))];
+        obj.data_pos_x = [obj.data_pos_x; NaN*ones(num_new,size(obj.data_pos_x,2))];
+        obj.data_pos_y = [obj.data_pos_y; NaN*ones(num_new,size(obj.data_pos_y,2))];
       end
       obj.data_size = [obj.data_size cellsize];
+      obj.data_pos_x = [obj.data_pos_x obj.mapping*circen(:,1)];
+      obj.data_pos_y = [obj.data_pos_y obj.mapping*circen(:,2)];
 
       if numel(img_expr)>1
         expr = obj.get_intensities( img_trans, img_expr, 0, mask, cirrad );
