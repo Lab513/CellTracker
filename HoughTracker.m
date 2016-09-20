@@ -386,6 +386,7 @@ classdef HoughTracker < handle
       end
       hold off;
       saveas( h, fullfile(obj.output_dir, sprintf('img_tracking_%04d.tif', obj.tp)), 'tif');
+      close all;
     end
   end
 end
